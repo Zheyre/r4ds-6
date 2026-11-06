@@ -13,3 +13,90 @@ library(DBI)
 library(duckdb)
 library(dbplyr)
 ```
+
+```{r}
+con <- dbConnect(duckdb(), "data/atus.duckdb", read_only = TRUE)
+
+dbplyr_act <- tbl(con, "activities")
+dbplyr_resp <- tbl(con, "respondents")
+dbplyr_codes <- tbl(con, "activity_codes")
+```
+
+```{r}
+#| cache: true
+activity_avg <- dbplyr_resp |>
+  filter(day_type == "Weekday", employment_status == "Not in labor force") |>
+  select(tucaseid, sex) |>
+  inner_join(dbplyr_act, by = "tucaseid") |>
+  left_join(dbplyr_codes, by = "activity_code") |>
+  summarize(minutes = sum(duration_min, na.rm = TRUE),
+            .by = c(tucaseid, sex, major_name)) |>
+  summarize(avg_daily_min = mean(minutes, na.rm = TRUE),
+            .by = c(sex, major_name)) |>
+  collect()
+```
+
+```{r}
+hourly_avg <- dbplyr_resp |>
+  filter(day_type == "Weekday", employment_status == "Not in labor force") |>
+  select(tucaseid, sex) |>
+  inner_join(dbplyr_act, by = "tucaseid") |>
+  left_join(dbplyr_codes, by = "activity_code") |>
+  filter(major_code %in% c(1, 2, 3, 12)) |>
+  mutate(hour = floor(start_hhmm / 100)) |>
+  filter(hour >= 6, hour <= 23) |>
+  summarize(minutes = sum(duration_min, na.rm = TRUE),
+            .by = c(tucaseid, sex, major_name, hour)) |>
+  summarize(avg_min = mean(minutes, na.rm = TRUE),
+            .by = c(sex, major_name, hour)) |>
+  arrange(sex, major_name, hour) |>
+  collect()
+
+hourly_avg
+```
+
+```{r}
+activity_avg |>
+  filter(major_name != "Data Codes") |>
+  ggplot(aes(x = avg_daily_min,
+             y = fct_reorder(major_name, avg_daily_min),
+             fill = sex)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c(Female = "#9b6fc9", Male = "#c9b3e3")) +
+  labs(
+    title = "How Americans Without Jobs Spend Their Weekdays",
+    subtitle = "Average daily minutes per category, among respondents who did the activity",
+    x = "Average minutes per day",
+    y = NULL,
+    fill = "Sex",
+    caption = "Source: American Time Use Survey, Bureau of Labor Statistics"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "top")
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 5
+hourly_avg |>
+  ggplot(aes(x = hour, y = avg_min, fill = major_name)) +
+  geom_area() +
+  facet_wrap(~ sex) +
+  scale_x_continuous(
+    breaks = c(6, 9, 12, 15, 18, 21),
+    labels = c("6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM")
+  ) +
+  scale_fill_manual(values = c("#ece4f5", "#c9b3e3", "#9b6fc9", "#5b3a80")) +
+  labs(
+    title = "How Nonemployed Americans Spend Their Weekdays",
+    subtitle = "Average minutes in activities starting each hour, by sex",
+    x = NULL,
+    y = "Average minutes",
+    fill = "Activity",
+    caption = "Source: American Time Use Survey, Bureau of Labor Statistics"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "bottom")
+```
