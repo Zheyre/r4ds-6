@@ -52,7 +52,6 @@ hourly_avg <- dbplyr_resp |>
   arrange(sex, major_name, hour) |>
   collect()
 
-hourly_avg
 ```
 
 ```{r}
